@@ -1,0 +1,133 @@
+#!/usr/bin/python
+
+from datetime import datetime
+import re
+import subprocess
+import sys
+
+SKIP_KEYWORD = "skip-sql-check"
+GITLOOK_COMMAND = 'git ls-tree --full-tree --name-only HEAD'
+
+def debug():
+    print("Number of arguments: %d", len(sys.argv))
+    print("Argument List: %s" % str(sys.argv))
+
+def GetAddedFileList():
+    resultList = []
+    res = subprocess.Popen('git diff --cached --name-status',stdout = subprocess.PIPE)
+    output, err = res.communicate()
+    changes = output.decode("utf-8")
+    files = changes.split('\n')
+
+    for file in files:
+        focusFile = file.split('\t')
+        if focusFile[0] == 'A':
+            resultList.append(focusFile[1])
+
+    return resultList
+
+def CheckCurrentRepo():
+    proc = subprocess.Popen('git fetch')
+    proc.wait()
+    
+    res = subprocess.Popen('git diff --name-only master origin',stdout = subprocess.PIPE)
+    output, err = res.communicate()
+    files = output.decode("utf-8")
+
+    if not files:
+        return True
+    else:
+        print('Nie posiadasz aktualnych plików wykonaj "git pull"')
+        return False
+
+def GetLastIdSql():
+    res = subprocess.Popen(GITLOOK_COMMAND,stdout = subprocess.PIPE)
+    output, err = res.communicate()
+    sqlFiles = output.decode("utf-8").split('\n')
+
+    maxId = 0
+    for file in sqlFiles:
+        try:
+            sqlId = file.split('_')[1]
+
+            if maxId < sqlId:
+                maxId = sqlId
+        except IndexError:
+            print('Błąd')
+
+
+    return maxId
+
+def ValidateFiles(fileList, lastIdSql):
+    fileList.sort()
+
+    for file in fileList:
+        if not ValidateName(file,lastIdSql): return False
+        if not ValidateCommentScript(file,lastIdSql): return False
+
+    return True
+
+def ValidateCommentScript(fileName,scriptId):
+    with open(fileName,"r") as fp:
+        lines = fp.readlines()
+        if not get_script_comment_number(lines[0]) == scriptId : return False
+
+    return True
+
+
+def ValidateName(fileName,lastIdSql):
+    date, id, *name = fileName.split('_')
+
+    today = datetime.now().strftime("%Y%m%d")
+
+    if not date == today:
+        print('Błąd: Niepoprawna data w pliku '+fileName)
+        return False
+
+    if not lastIdSql+1 == id:
+        print('Błąd: Niepoprawny id w pliku '+ fileName)
+        return False
+
+    return True 
+
+def get_script_comment_number(comment):
+   matchObj = re.search('\/\*\D*(\d+)\D*\*\/', comment, re.M|re.I)
+   if matchObj:
+       return int(matchObj.group(1))
+   else:
+       return 0
+
+def IsSkip():
+    with open(sys.argv[1], "r") as fp:
+        commitMsg = fp.read()
+
+        if SKIP_KEYWORD in commitMsg:
+          return True;  
+
+
+def main():
+
+    if IsSkip(): 
+        sys.exit(0)
+
+    addedFileList = GetAddedFileList()
+    currentRepo = CheckCurrentRepo()
+
+    if not currentRepo:
+        sys.exit(1)
+
+    lastIdSql = GetLastIdSql()
+
+    result = ValidateFiles(addedFileList, lastIdSql)
+
+    if result:
+        sys.exit(0)
+    else:
+        sys.exit(1)   
+
+if __name__ == "__main__":
+    main()
+
+
+
+
