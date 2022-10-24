@@ -106,7 +106,9 @@ def IsSkip():
 
 
 def main():
-
+    
+    debug()
+    
     if IsSkip(): 
         sys.exit(0)
 
